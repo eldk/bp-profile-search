@@ -11,6 +11,9 @@ function bps_add_form ()
 		$bp_pages = bp_core_get_directory_page_ids ();
 		$page = $bp_pages['members'];
 	}
+
+	$page = bps_wpml_id ($page, 'default');
+	if (bp_get_current_member_type ())  $page = bp_get_current_member_type ();
 	$len = strlen ((string)$page);
 
 	$args = array (
@@ -32,213 +35,50 @@ function bps_add_form ()
 		)
 	);
 
+	$args = apply_filters ('bps_form_order', $args);
 	$posts = get_posts ($args);
 
-	foreach ($posts as $post)  bps_display_form ($post->ID, 'bps_auto');
+	foreach ($posts as $post)
+	{
+		$meta = bps_meta ($post->ID);
+		$template = $meta['template'];
+		bps_display_form ($post->ID, $template, 'directory');
+	}
 }
 
-add_action ('bps_display_form', 'bps_display_form');
-function bps_display_form ($form, $mode='bps_action')
+add_action ('bps_display_form', 'bps_display_form', 10, 3);
+function bps_display_form ($form, $template='', $location='')
 {
 	if (!function_exists ('bp_has_profile'))
 	{
-		printf ('<p class="bps_error">'. __('%s: The BuddyPress Extended Profiles component is not active.', 'bps'). '</p>',
+		printf ('<p class="bps_error">'. __('%s: The BuddyPress Extended Profiles component is not active.', 'bp-profile-search'). '</p>',
 			'<strong>BP Profile Search '. BPS_VERSION. '</strong>');
 		return false;
 	}
 
-	$bps_options = bps_options ($form);
-	if (empty ($bps_options['field_name']))
+	$meta = bps_meta ($form);
+	if (empty ($meta['field_code']))
 	{
-		printf ('<p class="bps_error">'. __('%s: Form %d was not found, or has no fields.', 'bps'). '</p>',
+		printf ('<p class="bps_error">'. __('%s: Form %d was not found, or has no fields.', 'bp-profile-search'). '</p>',
 			'<strong>BP Profile Search '. BPS_VERSION. '</strong>', $form);
 		return false;
 	}
 
-	$action = get_page_link ($bps_options['action']);
+	if (empty ($template))  $template = bps_default_template ();
+	bps_set_template_args ($form, $location);
+	bps_call_template ($template);
 
-echo "\n<!-- BP Profile Search ". BPS_VERSION. " - start -->\n";
-if ($mode != 'bps_auto')  echo "<div id='buddypress'>";
+	return true;
+}
 
-	if ($mode == 'bps_auto')
-	{
-?>
-	<div class="item-list-tabs bps_header">
-	<ul>
-	<li><?php echo $bps_options['header']; ?></li>
-<?php if ($bps_options['toggle'] == 'Enabled') { ?>
-	<li class="last">
-	<input id="bps_toggle<?php echo $form; ?>" type="submit" value="<?php echo $bps_options['button']; ?>" />
-	</li>
-<?php } ?>
-	</ul>
-<?php if ($bps_options['toggle'] == 'Enabled') { ?>
-<script type="text/javascript">
-	jQuery(document).ready(function($) {
-		$('#<?php echo "$mode$form"; ?>').hide();
-		$('#bps_toggle<?php echo $form; ?>').click(function(){
-			$('#<?php echo "$mode$form"; ?>').toggle();
-		});
-	});
-</script>
-<?php } ?>
-	</div>
-<?php
-	}
+add_action ('bp_before_directory_members_content', 'bps_display_filters');
+function bps_display_filters ()
+{
+	$form = bps_active_form ();
+	if ($form === false)  return false;
 
-	list ($x, $fields) = bps_get_fields ();
-
-echo "<form action='$action' method='$bps_options[method]' id='$mode$form' class='standard-form'>";
-
-	$j = 0;
-	foreach ($bps_options['field_name'] as $k => $id)
-	{
-		if (empty ($fields[$id]))  continue;
-
-		$field = $fields[$id];
-		$field_type = apply_filters ('bps_field_html_type', $field->type, $field);
-
-		$label = $bps_options['field_label'][$k];
-		$desc = $bps_options['field_desc'][$k];
-		$range = isset ($bps_options['field_range'][$k]);
-
-		$fname = 'field_'. $id;
-		$name = sanitize_title ($field->name);
-		$alt = ($j++ % 2)? ' alt': '';
-
-echo "<div class='editfield field_$id field_$name$alt'>";
-
-		if (empty ($label))
-			$label = $field->name;
-		else
-echo "<input type='hidden' name='label_$id' value='". esc_attr ($label). "' />";
-
-		if (empty ($desc))
-			$desc = $field->description;
-
-		if (bps_custom_field ($field_type))
-		{
-			$output = "<p>Your HTML code for the <em>$field_type</em> field type goes here</p>";
-			$output = apply_filters ('bps_field_html', $output, $field, $label, $range);
-echo $output;
-		}
-		else if ($range)
-		{
-			list ($min, $max) = bps_minmax ($_REQUEST, $id, $field_type);
-
-echo "<label for='$fname'>$label</label>";
-echo "<input style='width: 10%;' type='text' name='{$fname}_min' id='$fname' value='$min' />";
-echo '&nbsp;-&nbsp;';
-echo "<input style='width: 10%;' type='text' name='{$fname}_max' value='$max' />";
-		}
-		else switch ($field_type)
-		{
-		case 'textbox':
-			$posted = isset ($_REQUEST[$fname])? $_REQUEST[$fname]: '';
-			$value = esc_attr (stripslashes ($posted));
-echo "<label for='$fname'>$label</label>";
-echo "<input type='text' name='$fname' id='$fname' value='$value' />";
-			break;
-
-		case 'number':
-			$posted = isset ($_REQUEST[$fname])? $_REQUEST[$fname]: '';
-			$value = esc_attr (stripslashes ($posted));
-echo "<label for='$fname'>$label</label>";
-echo "<input type='number' name='$fname' id='$fname' value='$value' />";
-			break;
-
-		case 'textarea':
-			$posted = isset ($_REQUEST[$fname])? $_REQUEST[$fname]: '';
-			$value = esc_textarea (stripslashes ($posted));
-echo "<label for='$fname'>$label</label>";
-echo "<textarea rows='5' cols='40' name='$fname' id='$fname'>$value</textarea>";
-			break;
-
-		case 'selectbox':
-echo "<label for='$fname'>$label</label>";
-echo "<select name='$fname' id='$fname'>";
-			$selectall = apply_filters ('bps_select_all', '', $field);
-			if (is_string ($selectall))
-echo "<option value='$selectall'></option>";
-
-			$posted = isset ($_REQUEST[$fname])? $_REQUEST[$fname]: '';
-			$options = bps_get_options ($id);
-			foreach ($options as $option)
-			{
-				$option = trim ($option);
-				$value = esc_attr (stripslashes ($option));
-				$selected = ($option == $posted)? "selected='selected'": "";
-echo "<option $selected value='$value'>$value</option>";
-			}
-echo "</select>";
-			break;
-
-		case 'multiselectbox':
-echo "<label for='$fname'>$label</label>";
-echo "<select name='{$fname}[]' id='$fname' multiple='multiple'>";
-
-			$posted = isset ($_REQUEST[$fname])? $_REQUEST[$fname]: array ();
-			$options = bps_get_options ($id);
-			foreach ($options as $option)
-			{
-				$option = trim ($option);
-				$value = esc_attr (stripslashes ($option));
-				$selected = (in_array ($option, $posted))? "selected='selected'": "";
-echo "<option $selected value='$value'>$value</option>";
-			}
-echo "</select>";
-			break;
-
-		case 'radio':
-echo "<div class='radio'>";
-echo "<span class='label'>$label</span>";
-echo "<div id='$fname'>";
-
-			$posted = isset ($_REQUEST[$fname])? $_REQUEST[$fname]: '';
-			$options = bps_get_options ($id);
-			foreach ($options as $option)
-			{
-				$option = trim ($option);
-				$value = esc_attr (stripslashes ($option));
-				$selected = ($option == $posted)? "checked='checked'": "";
-echo "<label><input $selected type='radio' name='$fname' value='$value'>$value</label>";
-			}
-echo '</div>';
-echo "<a class='clear-value' href='javascript:clear(\"$fname\");'>". __('Clear', 'buddypress'). "</a>";
-echo '</div>';
-			break;
-
-		case 'checkbox':
-echo "<div class='checkbox'>";
-echo "<span class='label'>$label</span>";
-
-			$posted = isset ($_REQUEST[$fname])? $_REQUEST[$fname]: array ();
-			$options = bps_get_options ($id);
-			foreach ($options as $option)
-			{
-				$option = trim ($option);
-				$value = esc_attr (stripslashes ($option));
-				$selected = (in_array ($option, $posted))? "checked='checked'": "";
-echo "<label><input $selected type='checkbox' name='{$fname}[]' value='$value'>$value</label>";
-			}
-echo '</div>';
-			break;
-		}
-
-	if ($desc != '-')
-echo "<p class='description'>$desc</p>";
-echo '</div>';
-	}
-
-echo "<div class='submit'>";
-echo "<input type='submit' value='". __('Search', 'buddypress'). "' />";
-echo '</div>';
-	if ($bps_options['searchmode'] == 'LIKE')
-echo "<input type='hidden' name='options[]' value='like' />";
-echo "<input type='hidden' name='bp_profile_search' value='$form' />";
-echo '</form>';
-if ($mode != 'bps_auto')  echo '</div>';
-echo "\n<!-- BP Profile Search ". BPS_VERSION. " - end -->\n";
+	bps_set_template_args ($form, 'filters');
+	bps_call_template ('members/bps-filters');
 
 	return true;
 }
@@ -249,106 +89,94 @@ function bps_show_form ($attr, $content)
 	ob_start ();
 
 	if (isset ($attr['form']))
-		bps_display_form ($attr['form'], 'bps_shortcode');
+	{
+		$template = isset ($attr['template'])? $attr['template']: '';
+		bps_display_form ($attr['form'], $template, 'shortcode');
+	}	
 
 	return ob_get_clean ();
 }
 
-add_shortcode ('bps_directory', 'bps_show_directory');
-function bps_show_directory ($attr, $content)
+function bps_set_template_args ()
 {
-	ob_start ();
+	$GLOBALS['bps_template_args'] = func_get_args ();
+}
 
-	if (!function_exists ('bp_has_profile'))
+function bps_template_args ()
+{
+	return $GLOBALS['bps_template_args'];
+}
+
+function bps_call_template ($template)
+{
+	$version = BPS_VERSION;
+	$args = implode (', ', bps_template_args ());
+
+	echo "\n<!-- BP Profile Search $version $template ($args) -->\n";
+	$found = bp_get_template_part ($template);
+	if ($found)
 	{
-		printf ('<p class="bps_error">'. __('%s: The BuddyPress Extended Profiles component is not active.', 'bps'). '</p>',
-			'<strong>BP Profile Search '. BPS_VERSION. '</strong>');
-	}
-	else if (current_theme_supports ('buddypress'))
-	{
-		printf ('<p class="bps_error">'. __('%s: Multiple directories are not supported for this theme.', 'bps'). '</p>',
-			'<strong>BP Profile Search '. BPS_VERSION. '</strong>');
+		$found = str_replace (WP_CONTENT_DIR, '', $found);
+		echo "\n<!-- template $found -->";
 	}
 	else
 	{
-		$template = isset ($attr['template'])? $attr['template']: 'members/index';
-
-		$found = bp_get_template_part ($template);
-		if (!$found)  printf ('<p class="bps_error">'. __('%s: The template "%s" was not found.', 'bps'). '</p>',
-			'<strong>BP Profile Search '. BPS_VERSION. '</strong>', $template);
+		printf ('<p class="bps_error">'. __('%s: Template "%s" not found.', 'bp-profile-search'). '</p>',
+		"<strong>BP Profile Search $version</strong>", $template);
 	}
+	echo "\n<!-- BP Profile Search - end -->\n";
 
-	return ob_get_clean ();
+	return true;
 }
 
-class bps_widget extends WP_Widget
+function bps_set_wpml ($form, $code, $key, $value)
 {
-	function bps_widget ()
-	{
-		$widget_ops = array ('description' => __('A Profile Search form.', 'bps'));
-		$this->WP_Widget ('bps_widget', __('Profile Search', 'bps'), $widget_ops);
-	}
+	if (!class_exists ('BPML_XProfile'))  return false;
+	if (empty ($value))  return false;
 
-	function widget ($args, $instance)
-	{
-		extract ($args);
-		$title = apply_filters ('widget_title', $instance['title']);
-		$form = $instance['form'];
-
-		echo $before_widget;
-		if ($title)
-			echo $before_title. $title. $after_title;
-		bps_display_form ($form, 'bps_widget');
-		echo $after_widget;
-	}
-
-	function update ($new_instance, $old_instance)
-	{
-		$instance = $old_instance;
-		$instance['title'] = $new_instance['title'];
-		$instance['form'] = $new_instance['form'];
-		return $instance;
-	}
-
-	function form ($instance)
-	{
-		$title = isset ($instance['title'])? $instance['title']: '';
-		$form = isset ($instance['form'])? $instance['form']: '';
-?>
-	<p>
-		<label for="<?php echo $this->get_field_id ('title'); ?>"><?php _e('Title:', 'bps'); ?></label>
-		<input class="widefat" id="<?php echo $this->get_field_id ('title'); ?>" name="<?php echo $this->get_field_name ('title'); ?>" type="text" value="<?php echo esc_attr ($title); ?>" />
-	</p>
-	<p>
-		<label for="<?php echo $this->get_field_id ('form'); ?>"><?php _e('Form:', 'bps'); ?></label>
-<?php
-		$posts = get_posts (array ('post_type' => 'bps_form', 'orderby' => 'ID', 'order' => 'ASC', 'nopaging' => true));
-		if (count ($posts))
-		{
-			echo "<select class='widefat' id='{$this->get_field_id ('form')}' name='{$this->get_field_name ('form')}'>";
-			foreach ($posts as $post)
-			{
-				$id = $post->ID;
-				$name = !empty ($post->post_title)? $post->post_title: __('(no title)');
-				echo "<option value='$id'";
-				if ($id == $form)  echo " selected='selected'";
-				echo ">$name &nbsp;</option>\n";
-			}
-			echo "</select>";
-		}
-		else
-		{
-			echo '<br/>';
-			_e('You have not created any form yet.', 'bps');
-		}
-?>
-	</p>
-<?php
-	}
+	do_action ('wpml_register_single_string', 'Profile Search', "form {$form} {$code} {$key}", $value);
 }
 
-add_action ('widgets_init', 'bps_widget_init');
-function bps_widget_init ()
+function bps_wpml ($form, $code, $key, $value)
 {
-	register_widget ('bps_widget');
+	if (empty ($value))  return $value;
+
+	if (class_exists ('BPML_XProfile'))
+	{
+		switch ($key)
+		{
+		case 'name':
+			return apply_filters ('wpml_translate_single_string', $value, 'Buddypress Multilingual', "profile field {$code} name");
+		case 'label':
+			return apply_filters ('wpml_translate_single_string', $value, 'Profile Search', "form {$form} {$code} label");
+		case 'description':
+			return apply_filters ('wpml_translate_single_string', $value, 'Buddypress Multilingual', "profile field {$code} description");
+		case 'comment':
+			return apply_filters ('wpml_translate_single_string', $value, 'Profile Search', "form {$form} {$code} comment");
+		case 'option':
+			$option = bpml_sanitize_string_name ($value, 30);
+			return apply_filters ('wpml_translate_single_string', $value, 'Buddypress Multilingual', "profile field {$code} - option '{$option}' name");
+		case 'header':
+			return apply_filters ('wpml_translate_single_string', $value, 'Profile Search', "form {$form} - header");
+		case 'toggle form':
+			return apply_filters ('wpml_translate_single_string', $value, 'Profile Search', "form {$form} - toggle form");
+		}
+	}
+	else if (class_exists ('WPGlobus_Core'))
+	{
+		return WPGlobus_Core::text_filter ($value, WPGlobus::Config()->language);	
+	}
+
+	return $value;
+}
+
+function bps_wpml_id ($id, $lang='current')
+{
+	if (class_exists ('BPML_XProfile'))
+	{
+		$language = $lang == 'current'? apply_filters ('wpml_current_language', null): apply_filters ('wpml_default_language', null);
+		$id = apply_filters ('wpml_object_id', $id, 'page', true, $language);
+	}
+
+	return $id;
 }
